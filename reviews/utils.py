@@ -1,25 +1,23 @@
+import json
 import re
 
 import numpy as np
+import requests
+from django.http.response import JsonResponse
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 
 from . import constants
 
 
 def abbreviation_to_actual_word(text):
-    """Converts abbreviations to their full forms in the text."""
-
-    tokens = constants.TOKENIZER.tokenize(text)
+    tokens = constants.ZEMBEREK_TOKENIZER.tokenize(text)
     actual_words = [
         constants.ABBREVIATIONS.get(token.content, token.content) for token in tokens
     ]
-
     return " ".join(actual_words)
 
 
 def split_titled_words(text):
-    """Split words that are written in title case into individual words."""
-
     if text.isupper():
         return text
 
@@ -45,8 +43,6 @@ def split_titled_words(text):
 
 
 def normalize(text):
-    """Normalizes the text by converting abbreviations, splitting titled words, and applying other normalization rules."""
-
     text = abbreviation_to_actual_word(text)
     text = split_titled_words(text)
 
@@ -69,11 +65,9 @@ def normalize(text):
 
 
 def preprocess(text):
-    """Preprocesses the text by normalizing and tokenizing it, and removing stopwords."""
-
     text = normalize(text)
 
-    tokens = constants.TOKENIZER.tokenize(text)
+    tokens = constants.ZEMBEREK_TOKENIZER.tokenize(text)
     filtered_tokens = []
 
     for token in tokens:
@@ -92,64 +86,41 @@ def preprocess(text):
     return " ".join(filtered_tokens)
 
 
-def to_sequence(text):
-    """Converts text to a sequence of integers using the tokenizer."""
-
-    tokenizer = constants.MODELS["tokenizer"]
-    if isinstance(text, str):
-        sequence = pad_sequences(
-            tokenizer.texts_to_sequences([text]), maxlen=constants.MAXLEN
-        )
-    else:
-        sequence = pad_sequences(
-            tokenizer.texts_to_sequences(text), maxlen=constants.MAXLEN
-        )
-    return sequence
-
-
 def decode_sentiment(y_pred):
-    """Decodes the predicted sentiment label from model output."""
-
-    label = constants.MODELS["encoder"].inverse_transform(y_pred)[0]
+    label = constants.ENCODER.inverse_transform(y_pred)[0]
     label = constants.LABELS.get(label, label)
-
     return label
 
 
-def count_sentiments(y_pred):
-    """Return sentiment counts for dataset prediction."""
-    sentiment_counts = {"Negative": 0, "Neutral": 0, "Positive": 0}
-
-    for pred in y_pred:
-        if pred != "Not mentioned":
-            sentiment_counts[pred] += 1
-
-    return sentiment_counts
+def convert_text_to_sequence(x_test):
+    sequence = pad_sequences(constants.TOKENIZER.texts_to_sequences(x_test), maxlen=300)
+    return sequence.tolist()[0]
 
 
 def predict(x_test):
-    """Predicts the sentiment labels for different aspects (yemek, şirket, motivasyon) based on the input text or dataset."""
+    base_url = "http://tf-serving:8501/v1/models/"
 
     results = {"topics": {}}
-    sequence = to_sequence(x_test)
+    sequence = convert_text_to_sequence([x_test])
 
-    for name in constants.MODELS.keys():
-        if name not in constants.NOT_KERAS_MODELS:
-            y_pred = constants.MODELS[name].predict(sequence)
+    for model_name in constants.MODEL_NAMES:
+        # Model name
+        model_url = "_".join(model_name.split()) + "_model:predict"
+        payload = {"instances": [sequence]}
 
-            if isinstance(x_test, str):
-                confidence = round(np.max(y_pred), 3)
-                sentiment = decode_sentiment(np.argmax(y_pred, axis=1))
+        response = requests.post(url=base_url + model_url, data=json.dumps(payload))
+        response_data = response.json()
+        predictions = np.array(response_data.get("predictions", []))
+
+        overall_sentiment = decode_sentiment(np.argmax(predictions, axis=1))
+        if overall_sentiment != "Not mentioned":
+            results["topics"][model_name.title()] = {"emotions": {}}
+            for idx, score in enumerate(predictions[0]):
+                sentiment = decode_sentiment([idx])
                 if sentiment == "Not mentioned":
                     continue
-                results["topics"][name.title()] = {
-                    "sentiment": sentiment,
-                    "confidence": str(confidence),
-                }
-            else:
-                y_pred = np.argmax(y_pred, axis=1)
-                results["topics"][name.title()] = count_sentiments(
-                    [decode_sentiment([pred]) for pred in y_pred]
+                results["topics"][model_name.title()]["emotions"].update(
+                    {sentiment: str(score)}
                 )
 
     return results

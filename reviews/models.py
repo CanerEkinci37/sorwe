@@ -1,3 +1,17 @@
-from django.db import models
+from djongo import models
 
-# Create your models here.
+
+class Topic(models.Model):
+    category = models.CharField(max_length=50)
+    emotions = models.JSONField()
+
+    class Meta:
+        abstract = True
+
+
+class Review(models.Model):
+    text = models.TextField()
+    topics = models.ArrayField(model_container=Topic)
+
+    def __str__(self) -> str:
+        return self.text

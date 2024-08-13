@@ -1,10 +1,8 @@
-import os
+import logging
 import pickle
 from pathlib import Path
 
 import nltk
-import tensorflow as tf
-from nltk.corpus import stopwords
 from zemberek import (
     TurkishMorphology,
     TurkishSentenceNormalizer,
@@ -12,22 +10,8 @@ from zemberek import (
     TurkishTokenizer,
 )
 
-base_dir = Path(__file__).resolve().parent.parent
-model_path = base_dir / "saved_models"
-NOT_KERAS_MODELS = ["tokenizer", "encoder", "model"]
-
-ABBREVIATIONS = {"mrb": "merhaba", "slm": "selam"}
-LABELS = {"pos": "Positive", "neu": "Neutral", "neg": "Negative", "x": "Not mentioned"}
-MAXLEN = 100
-
-nltk.download("stopwords")
-TURKISH_STOPWORDS = set(stopwords.words("turkish"))
-
-MORPHOLOGY = TurkishMorphology.create_with_defaults()
-NORMALIZER = TurkishSentenceNormalizer(MORPHOLOGY)
-SPELLCHECKER = TurkishSpellChecker(MORPHOLOGY)
-TOKENIZER = TurkishTokenizer.DEFAULT
-
+logger = logging.getLogger(__name__)
+# Sabitler
 SHOULD_BE_NORMALIZED = {
     "a 101": "a101",
     "daçathlon": "decathlon",
@@ -35,17 +19,52 @@ SHOULD_BE_NORMALIZED = {
     "migors": "migros",
     "koçlaş": "koçtaş",
 }
+ABBREVIATIONS = {"mrb": "merhaba", "slm": "selam"}
+LABELS = {"pos": "Positive", "neu": "Neutral", "neg": "Negative", "x": "Not mentioned"}
+MAXLEN = 128
+MODEL_NAMES = [
+    "yemek",
+    "sirket",
+    "motivasyon",
+    "geri bildirim",
+    "calisma ortami",
+    "prim",
+]
 
-files = os.listdir(model_path)
+base_dir = Path(__file__).resolve().parent.parent
+model_path = base_dir / "saved_models"
+
+# Global variables
+_initialized = False
 MODELS = {}
+TOKENIZER = None
+ENCODER = None
+TURKISH_STOPWORDS = None
+MORPHOLOGY = None
+NORMALIZER = None
+SPELLCHECKER = None
+ZEMBEREK_TOKENIZER = None
 
-for file in files:
-    if file.endswith(".pkl"):
-        name = file.split(".")[0]
-        with open(model_path / file, "rb") as f:
-            model = pickle.load(f)
-    elif file.endswith(".keras"):
-        name = " ".join(file.split("_")[:-1])
-        model = tf.keras.models.load_model(model_path / file)
 
-    MODELS[name] = model
+def initialize():
+    global _initialized, MODELS, TOKENIZER, ENCODER, TURKISH_STOPWORDS, MORPHOLOGY, NORMALIZER, SPELLCHECKER, ZEMBEREK_TOKENIZER
+
+    if _initialized:
+        return
+
+    nltk.download("stopwords")
+    TURKISH_STOPWORDS = set(nltk.corpus.stopwords.words("turkish"))
+
+    MORPHOLOGY = TurkishMorphology.create_with_defaults()
+    NORMALIZER = TurkishSentenceNormalizer(MORPHOLOGY)
+    SPELLCHECKER = TurkishSpellChecker(MORPHOLOGY)
+    ZEMBEREK_TOKENIZER = TurkishTokenizer.DEFAULT
+
+    with open(model_path / "encoder.pkl", "rb") as f:
+        ENCODER = pickle.load(f)
+
+    with open(model_path / "tokenizer.pkl", "rb") as f:
+        TOKENIZER = pickle.load(f)
+
+    logger.info("Models are initialized.")
+    _initialized = True

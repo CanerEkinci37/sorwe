@@ -1,6 +1,10 @@
 from django.apps import AppConfig
 
+from .constants import initialize
+
 
 class ReviewsConfig(AppConfig):
-    default_auto_field = 'django.db.models.BigAutoField'
-    name = 'reviews'
+    name = "reviews"
+
+    def ready(self) -> None:
+        initialize()

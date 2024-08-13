@@ -9,6 +9,23 @@ from django.http.response import (
 from django.views.decorators.csrf import csrf_exempt
 
 from . import utils
+from .models import Review
+
+
+def list_reviews(request):
+    reviews = Review.objects.all().order_by("-id")[:10]
+    reviews_list = []
+
+    for review in reviews:
+        review_dict = {"text": review.text, "topics": []}
+        for topic in review.topics:
+            topic_dict = {"category": topic["category"], "emotions": {}}
+            for sentiment, score in topic["emotions"].items():
+                topic_dict["emotions"][sentiment] = score
+            review_dict["topics"].append(topic_dict)
+        reviews_list.append(review_dict)
+
+    return JsonResponse(reviews_list, safe=False)
 
 
 @csrf_exempt
@@ -25,53 +42,20 @@ def classify_review(request):
         predicted_results = utils.predict(preprocessed_review)
         results.update(predicted_results)
 
-        # db_results = []
-        # for aspect, data in results["topics"].items():
-        #     sentiment = data.get("sentiment")
-        #     confidence = float(data.get("confidence"))
+        topics = []
+        for topic_name, topic_info in results["topics"].items():
+            emotions = topic_info["emotions"]
 
-        #     topics = {}
-        #     db_results.append({"sentiment": sentiment, "confidence": confidence})
+            formatted_emotions = {
+                sentiment: score for sentiment, score in emotions.items()
+            }
+            topic = {"category": topic_name, "emotions": formatted_emotions}
+            topics.append(topic)
+
+        review = Review(text=review, topics=topics)
+        review.save()
     else:
         return HttpResponseNotAllowed(["POST"], "Invalid request method.")
 
     results["elapsed_time"] = round(time.time() - start_at, 3)
-
-    return JsonResponse(results)
-
-
-@csrf_exempt
-def classify_dataset(request):
-    """Handles POST requests to classify a dataset's sentiment."""
-
-    start_at = time.time()
-    results = {}
-
-    if request.method == "POST":
-        try:
-            file = request.FILES.get("file")
-            if not file:
-                return HttpResponseBadRequest("No file uploaded.")
-
-            df = pd.read_csv(file)
-            if "review" not in df.columns:
-                return HttpResponseBadRequest(
-                    "The CSV file must contain a 'review' column."
-                )
-
-            # df["review"] = df["review"].apply(helpers.preprocess)
-            reviews = df["review"].values
-
-            predicts_results = utils.predict(reviews)
-            results = {
-                **predicts_results,
-                "elapsed_time": round(time.time() - start_at, 3),
-            }
-        except Exception as e:
-            return HttpResponseBadRequest(
-                f"An error occurred while processing the dataset.\n{e}"
-            )
-    else:
-        return HttpResponseNotAllowed(["POST"], "Invalid request method.")
-
     return JsonResponse(results)

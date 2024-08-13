@@ -1,8 +1,8 @@
 from django.urls import path
 
-from .views import classify_dataset, classify_review
+from .views import classify_review, list_reviews
 
 urlpatterns = [
-    path("classify_review/", classify_review, name="classify_review"),
-    path("classify_dataset/", classify_dataset, name="classify_dataset"),
+    path("", list_reviews, name="reviews"),
+    path("classify/", classify_review, name="classify"),
 ]
